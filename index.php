@@ -35,6 +35,9 @@ if (isset($_GET['logout'])) {
 
     <?php if (isset($_SESSION['user_id'])): ?>
         <li><a href="pages/orders.php">My Orders</a></li>
+        <?php if ($_SESSION['role'] === 'admin'): ?>
+            <li><a href="admin/dashboard.php">Admin Panel</a></li>
+        <?php endif; ?>
         <li class="nav-welcome">Welcome, <?= htmlspecialchars($_SESSION['full_name']) ?></li>
         <li><a href="index.php?logout=1">Logout</a></li>
     <?php else: ?>
