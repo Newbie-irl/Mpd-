@@ -75,7 +75,7 @@ $cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
 
     <header>
         <nav class="navbar">
-            <div class="logo">MPD Electrical</div>
+            <div class="logo">MPD Electrical Supply & Services</div>
  <ul class="nav-links">
     <li><a href="../index.php">Home</a></li>
     <li><a href="products.php">Products</a></li>
