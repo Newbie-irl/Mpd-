@@ -144,7 +144,7 @@ $products = $pdo->query("SELECT * FROM products ORDER BY created_at DESC")->fetc
                 <a href="dashboard.php">Dashboard</a>
                 <a href="products.php" class="active">Products</a>
                 <a href="orders.php">Orders</a>
-                <a href="bookings.php">Bookings</a>
+                <a href="deliveries.php">Deliveries</a>
             </nav>
             <div class="admin-navbar-actions">
                 <a href="../index.php">&larr; Back to site</a>

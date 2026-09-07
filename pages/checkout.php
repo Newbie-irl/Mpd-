@@ -16,6 +16,13 @@ if (!isset($_SESSION['cart'])) {
 $errors  = [];
 $success = '';
 
+// Delivery time slots the customer can choose from
+$timeSlots = [
+    'morning'   => 'Morning (8:00 AM - 12:00 PM)',
+    'afternoon' => 'Afternoon (12:00 PM - 4:00 PM)',
+    'evening'   => 'Evening (4:00 PM - 8:00 PM)',
+];
+
 /**
  * Reload the cart from the DB, clamping quantities to whatever stock is
  * actually available right now. Returns [$cartItems, $grandTotal].
@@ -74,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'place
     $recipientName = trim($_POST['recipient_name'] ?? '');
     $address       = trim($_POST['address'] ?? '');
     $contactNumber = trim($_POST['contact_number'] ?? '');
+    $preferredTime = $_POST['preferred_time'] ?? '';
     $notes         = trim($_POST['notes'] ?? '');
 
     if ($recipientName === '') {
@@ -84,6 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'place
     }
     if ($contactNumber === '') {
         $errors[] = "Contact number is required.";
+    }
+    if (!array_key_exists($preferredTime, $timeSlots)) {
+        $errors[] = "Please choose a preferred delivery time.";
     }
 
     [$cartItems, $grandTotal] = loadCart($pdo, $_SESSION['cart']);
@@ -141,14 +152,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'place
             }
 
             $deliveryStmt = $pdo->prepare(
-                "INSERT INTO deliveries (order_id, recipient_name, address, contact_number, status, notes)
-                 VALUES (:order_id, :recipient_name, :address, :contact_number, 'pending', :notes)"
+                "INSERT INTO deliveries (order_id, recipient_name, address, contact_number, preferred_time, status, notes)
+                 VALUES (:order_id, :recipient_name, :address, :contact_number, :preferred_time, 'pending', :notes)"
             );
             $deliveryStmt->execute([
                 'order_id'        => $orderId,
                 'recipient_name'  => $recipientName,
                 'address'         => $address,
                 'contact_number'  => $contactNumber,
+                'preferred_time'  => $preferredTime,
                 'notes'           => $notes !== '' ? $notes : null,
             ]);
 
@@ -278,6 +290,19 @@ $cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
                         <label for="contact_number">Contact Number</label>
                         <input type="text" id="contact_number" name="contact_number" required
                                value="<?= htmlspecialchars($_POST['contact_number'] ?? '') ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="preferred_time">Preferred Delivery Time</label>
+                        <select id="preferred_time" name="preferred_time" required>
+                            <option value="">Select a time slot&hellip;</option>
+                            <?php foreach ($timeSlots as $value => $label): ?>
+                                <option value="<?= htmlspecialchars($value) ?>"
+                                    <?= ($_POST['preferred_time'] ?? '') === $value ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($label) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
 
                     <div class="form-group">

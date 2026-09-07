@@ -8,6 +8,9 @@ if (isset($_GET['logout'])) {
     header('Location: index.php');
     exit;
 }
+
+// Cart item count (for nav badge) — matches every other page's logic
+$cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -31,7 +34,7 @@ if (isset($_GET['logout'])) {
         <ul class="nav-links">
     <li><a href="index.php">Home</a></li>
     <li><a href="pages/products.php">Products</a></li>
-    <li><a href="pages/cart.php">Cart</a></li>
+    <li><a href="pages/cart.php">Cart<?= $cartCount > 0 ? ' (' . $cartCount . ')' : '' ?></a></li>
 
     <?php if (isset($_SESSION['user_id'])): ?>
         <li><a href="pages/orders.php">My Orders</a></li>
@@ -45,7 +48,6 @@ if (isset($_GET['logout'])) {
         <li><a href="register.php">Register</a></li>
     <?php endif; ?>
 </ul>
-            </ul>
         </nav>
     </header>
 

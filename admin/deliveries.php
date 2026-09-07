@@ -10,6 +10,13 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 
 $validStatuses = ['pending', 'out_for_delivery', 'delivered', 'failed'];
 
+// Delivery time slots (must match the options offered at checkout)
+$timeSlots = [
+    'morning'   => 'Morning (8:00 AM - 12:00 PM)',
+    'afternoon' => 'Afternoon (12:00 PM - 4:00 PM)',
+    'evening'   => 'Evening (4:00 PM - 8:00 PM)',
+];
+
 // Display labels + CSS classes. The classes reuse the existing status-badge
 // styles (out_for_delivery -> "processing", delivered -> "completed",
 // failed -> "cancelled") so no new CSS is needed.
@@ -38,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     $riderName     = trim($_POST['rider_name'] ?? '');
     $status        = $_POST['status'] ?? '';
     $scheduledDate = $_POST['scheduled_date'] ?? '';
+    $preferredTime = $_POST['preferred_time'] ?? '';
     $notes         = trim($_POST['notes'] ?? '');
 
     if ($recipientName === '') {
@@ -52,7 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
             "UPDATE deliveries
              SET recipient_name = :recipient_name, address = :address,
                  contact_number = :contact_number, rider_name = :rider_name,
-                 status = :status, scheduled_date = :scheduled_date, notes = :notes
+                 status = :status, scheduled_date = :scheduled_date,
+                 preferred_time = :preferred_time, notes = :notes
              WHERE id = :id"
         );
         $stmt->execute([
@@ -62,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
             'rider_name'     => $riderName !== '' ? $riderName : null,
             'status'         => $status,
             'scheduled_date' => $scheduledDate !== '' ? $scheduledDate : null,
+            'preferred_time' => array_key_exists($preferredTime, $timeSlots) ? $preferredTime : null,
             'notes'          => $notes !== '' ? $notes : null,
             'id'             => $id,
         ]);
@@ -207,6 +217,19 @@ $deliveries = $stmt->fetchAll();
                         </div>
 
                         <div class="form-group">
+                            <label for="preferred_time">Preferred Delivery Time</label>
+                            <select id="preferred_time" name="preferred_time">
+                                <option value="">&mdash;</option>
+                                <?php foreach ($timeSlots as $value => $label): ?>
+                                    <option value="<?= htmlspecialchars($value) ?>"
+                                        <?= ($editDelivery['preferred_time'] ?? '') === $value ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($label) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
                             <label for="notes">Notes</label>
                             <textarea id="notes" name="notes" rows="2"><?= htmlspecialchars($editDelivery['notes'] ?? '') ?></textarea>
                         </div>
@@ -237,6 +260,7 @@ $deliveries = $stmt->fetchAll();
                                 <th>Customer</th>
                                 <th>Recipient / Address</th>
                                 <th>Contact</th>
+                                <th>Preferred Time</th>
                                 <th>Rider</th>
                                 <th>Status</th>
                                 <th>Scheduled</th>
@@ -261,6 +285,7 @@ $deliveries = $stmt->fetchAll();
                                         <?php endif; ?>
                                     </td>
                                     <td><?= $delivery['contact_number'] ? htmlspecialchars($delivery['contact_number']) : '&mdash;' ?></td>
+                                    <td><?= !empty($delivery['preferred_time']) && isset($timeSlots[$delivery['preferred_time']]) ? htmlspecialchars($timeSlots[$delivery['preferred_time']]) : '&mdash;' ?></td>
                                     <td>
                                         <?php if ($delivery['rider_name']): ?>
                                             <?= htmlspecialchars($delivery['rider_name']) ?>
