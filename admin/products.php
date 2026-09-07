@@ -11,9 +11,16 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 $errors  = [];
 $success = '';
 
-$uploadDir = '../assets/images/products/';
+$uploadDir = __DIR__ . '/../assets/images/products/';
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    error_clear_last();
+    $created = @mkdir($uploadDir, 0755, true);
+    if (!$created && !is_dir($uploadDir)) {
+        $osError = error_get_last()['message'] ?? 'unknown error';
+        $errors[] = "Could not create the product image upload folder ($uploadDir). "
+                  . "OS said: $osError. Check that the 'MPD' folder isn't read-only "
+                  . "and that your user account has write permission to it.";
+    }
 }
 
 // ---- Add / Update ----
@@ -104,11 +111,28 @@ if (isset($_GET['delete'])) {
     $toDelete = $stmt->fetch();
 
     if ($toDelete) {
-        if ($toDelete['image'] && file_exists($uploadDir . $toDelete['image'])) {
-            unlink($uploadDir . $toDelete['image']);
+        try {
+            $stmt = $pdo->prepare("DELETE FROM products WHERE id = :id");
+            $stmt->execute(['id' => $id]);
+
+            // Only remove the image file once the DB row is actually gone
+            if ($toDelete['image'] && file_exists($uploadDir . $toDelete['image'])) {
+                unlink($uploadDir . $toDelete['image']);
+            }
+        } catch (PDOException $e) {
+            // Foreign key violation (error code 23000) means this product
+            // appears in one or more existing orders — deleting it would
+            // corrupt that order history, so MySQL blocks it. Redirect
+            // back with a friendly explanation instead of crashing.
+            if ($e->getCode() === '23000') {
+                $_SESSION['delete_error'] =
+                    "This product can't be deleted because it's part of one or more existing orders. "
+                    . "Deleting it would break that order history. "
+                    . "If you no longer want it for sale, consider setting its stock to 0 instead.";
+            } else {
+                throw $e;
+            }
         }
-        $stmt = $pdo->prepare("DELETE FROM products WHERE id = :id");
-        $stmt->execute(['id' => $id]);
     }
 
     header('Location: products.php');
@@ -148,7 +172,7 @@ $products = $pdo->query("SELECT * FROM products ORDER BY created_at DESC")->fetc
             </nav>
             <div class="admin-navbar-actions">
                 <a href="../index.php">&larr; Back to site</a>
-                <a href="../index.php?logout=1">Logout</a>
+                <a href="../logout.php">Logout</a>
             </div>
         </header>
 
@@ -161,6 +185,11 @@ $products = $pdo->query("SELECT * FROM products ORDER BY created_at DESC")->fetc
 
             <?php if ($success): ?>
                 <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($_SESSION['delete_error'])): ?>
+                <div class="alert alert-error"><?= htmlspecialchars($_SESSION['delete_error']) ?></div>
+                <?php unset($_SESSION['delete_error']); ?>
             <?php endif; ?>
 
             <?php if (!empty($errors)): ?>

@@ -119,7 +119,7 @@ if (!empty($orders)) {
             </nav>
             <div class="admin-navbar-actions">
                 <a href="../index.php">&larr; Back to site</a>
-                <a href="../index.php?logout=1">Logout</a>
+                <a href="../logout.php">Logout</a>
             </div>
         </header>
 
