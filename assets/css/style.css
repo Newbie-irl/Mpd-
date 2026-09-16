@@ -876,3 +876,138 @@ details summary {
     justify-content: space-between;
   }
 }
+
+/* ===== Admin table overflow fix =====
+   Prevents long addresses / many rows from stretching the page layout. */
+
+.admin-table-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.admin-table th,
+.admin-table td {
+    vertical-align: top;
+}
+
+.admin-table th {
+    white-space: nowrap;
+}
+
+/* Buttons, dropdowns, and their wrapping forms should never break mid-word,
+   regardless of how narrow their column ends up */
+.admin-table button,
+.admin-table select,
+.admin-table .btn-edit,
+.admin-table .btn-danger {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
+.status-form {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+}
+
+.admin-table-actions {
+    white-space: nowrap;
+}
+
+/* Address / recipient column: this is the one place long unbroken text
+   (an address with no spaces to wrap at) can actually appear, so it's the
+   only column allowed to break mid-word. Every other column wraps at
+   spaces only. */
+.admin-table td:nth-child(3) {
+    max-width: 220px;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+/* Many rows: scroll the table area instead of the whole page growing */
+.admin-panel .admin-table-wrapper {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* ===== Sales report bar chart =====
+   Plain CSS bars, no JS chart library needed. */
+
+.sales-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 220px;
+    padding: 0.5rem 0;
+    overflow-x: auto;
+}
+
+.sales-bar-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 1 0 18px;
+    height: 100%;
+    min-width: 18px;
+}
+
+.sales-bar {
+    width: 100%;
+    max-width: 28px;
+    background-color: var(--primary-color, #2563eb);
+    border-radius: 3px 3px 0 0;
+    transition: opacity 0.15s ease;
+}
+
+.sales-bar-col:hover .sales-bar {
+    opacity: 0.8;
+}
+
+.sales-bar-label {
+    margin-top: 0.35rem;
+    font-size: 0.7rem;
+    color: #666;
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    max-height: 60px;
+}
+
+/* ---- Order details page ---- */
+
+.order-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.order-details-card {
+  background-color: var(--color-white);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.order-details-card h2 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.order-details-items {
+  grid-column: 1 / -1;
+}
+
+.admin-table-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

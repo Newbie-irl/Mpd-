@@ -63,7 +63,7 @@ $products = $stmt->fetchAll();
             <li><a href="../admin/dashboard.php">Admin Panel</a></li>
         <?php endif; ?>
         <li class="nav-welcome">Welcome, <?= htmlspecialchars($_SESSION['full_name']) ?></li>
-        <li><a href="../index.php?logout=1">Logout</a></li>
+        <li><a href="../logout.php">Logout</a></li>
     <?php else: ?>
         <li><a href="../login.php">Login</a></li>
         <li><a href="../register.php">Register</a></li>
