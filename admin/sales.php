@@ -14,7 +14,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
 $range        = $_GET['range'] ?? '30';
 $statusFilter = $_GET['status'] ?? 'completed';
 
-$validRanges   = ['7', '30', '90', '365', 'all', 'custom'];
+$validRanges   = ['7', '30', '90', '365', 'all'];
 $validStatuses = ['completed', 'all'];
 if (!in_array($range, $validRanges, true)) {
     $range = '30';
@@ -23,29 +23,17 @@ if (!in_array($statusFilter, $validStatuses, true)) {
     $statusFilter = 'completed';
 }
 
-$customStart = $_GET['start_date'] ?? '';
-$customEnd   = $_GET['end_date'] ?? '';
-if ($range === 'custom' && (!$customStart || !$customEnd || $customStart > $customEnd)) {
-    // Bad or incomplete custom range — fall back to the 30-day default
-    // instead of erroring out.
-    $range = '30';
-}
-
 $rangeLabels = [
-    '7'      => 'Last 7 Days',
-    '30'     => 'Last 30 Days',
-    '90'     => 'Last 90 Days',
-    '365'    => 'Last 12 Months',
-    'all'    => 'All Time',
-    'custom' => 'Custom Range',
+    '7'   => 'Last 7 Days',
+    '30'  => 'Last 30 Days',
+    '90'  => 'Last 90 Days',
+    '365' => 'Last 12 Months',
+    'all' => 'All Time',
 ];
 
 $endDate = new DateTime('tomorrow'); // exclusive upper bound, covers all of "today"
 if ($range === 'all') {
     $startDate = null;
-} elseif ($range === 'custom') {
-    $startDate = new DateTime($customStart);
-    $endDate   = (new DateTime($customEnd))->modify('+1 day'); // exclusive upper bound
 } else {
     $startDate = (new DateTime())->modify("-{$range} days");
 }
@@ -87,14 +75,8 @@ $avgItemsPerOrder = $summary['total_orders'] > 0 ? $itemsSold / $summary['total_
 $prevSummary   = null;
 $comparisonLabel = '';
 if ($range !== 'all' && $startDate !== null) {
-    if ($range === 'custom') {
-        $lengthSeconds = $endDate->getTimestamp() - $startDate->getTimestamp();
-        $prevEnd   = clone $startDate;
-        $prevStart = (clone $startDate)->modify('-' . max(1, (int) round($lengthSeconds / 86400)) . ' days');
-    } else {
-        $prevEnd   = clone $startDate;
-        $prevStart = (clone $startDate)->modify("-{$range} days");
-    }
+    $prevEnd   = clone $startDate;
+    $prevStart = (clone $startDate)->modify("-{$range} days");
 
     $prevWhere  = ($statusFilter === 'completed') ? "o.status = 'completed'" : "o.status != 'cancelled'";
     $prevWhere .= " AND o.created_at >= :start AND o.created_at < :end";
@@ -106,7 +88,7 @@ if ($range !== 'all' && $startDate !== null) {
     $stmt = $pdo->prepare("SELECT COALESCE(SUM(o.total_amount), 0) AS total_revenue, COUNT(*) AS total_orders FROM orders o WHERE $prevWhere");
     $stmt->execute($prevParams);
     $prevSummary = $stmt->fetch();
-    $comparisonLabel = 'vs previous ' . ($range === 'custom' ? 'equivalent period' : $rangeLabels[$range]);
+    $comparisonLabel = 'vs previous ' . $rangeLabels[$range];
 }
 
 function pct_change($current, $previous): ?float
@@ -251,7 +233,7 @@ foreach ($topCustomers as $c) {
 }
 
 // Helper to build a query string that preserves the current filters while
-// changing/adding one param (e.g. export=csv).
+// changing/adding a param.
 function sales_url(array $overrides = []): string
 {
     $params = array_merge($_GET, $overrides);
@@ -262,47 +244,6 @@ function sales_url(array $overrides = []): string
     }
     $qs = http_build_query($params);
     return 'sales.php' . ($qs !== '' ? '?' . $qs : '');
-}
-
-// ---- CSV export ----
-// Renders a plain CSV of the current view instead of the HTML page.
-// Computed above so the export always matches exactly what's on screen.
-if (($_GET['export'] ?? '') === 'csv') {
-    $filename = 'sales-report-' . $range . '-' . date('Y-m-d') . '.csv';
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['MPD Sales Report', $rangeLabels[$range]]);
-    fputcsv($out, []);
-    fputcsv($out, ['Total Revenue', 'Orders', 'Average Order Value', 'Items Sold', 'Avg Items / Order']);
-    fputcsv($out, [
-        number_format($summary['total_revenue'], 2, '.', ''),
-        (int) $summary['total_orders'],
-        number_format($summary['avg_order_value'], 2, '.', ''),
-        $itemsSold,
-        number_format($avgItemsPerOrder, 2, '.', ''),
-    ]);
-    fputcsv($out, []);
-    fputcsv($out, ['Best-Selling Products']);
-    fputcsv($out, ['#', 'Product', 'Category', 'Units Sold', 'Revenue']);
-    foreach ($topProducts as $i => $p) {
-        fputcsv($out, [$i + 1, $p['name'], $p['category'] ?: '—', (int) $p['units_sold'], number_format($p['revenue'], 2, '.', '')]);
-    }
-    fputcsv($out, []);
-    fputcsv($out, ['Sales by Category']);
-    fputcsv($out, ['Category', 'Units Sold', 'Revenue']);
-    foreach ($byCategory as $c) {
-        fputcsv($out, [$c['category'], (int) $c['units_sold'], number_format($c['revenue'], 2, '.', '')]);
-    }
-    fputcsv($out, []);
-    fputcsv($out, ['Top Customers']);
-    fputcsv($out, ['Customer', 'Email', 'Orders', 'Revenue']);
-    foreach ($topCustomers as $c) {
-        fputcsv($out, [$c['full_name'], $c['email'], (int) $c['order_count'], number_format($c['revenue'], 2, '.', '')]);
-    }
-    fclose($out);
-    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -356,12 +297,6 @@ if (($_GET['export'] ?? '') === 'csv') {
         .count-select-wrap select { height: 2.25rem; padding: 0 0.75rem; border: 1px solid #cbd5e1; border-radius: 0.75rem; font-size: 0.85rem; background-color: #f1f5f9; color: #0f172a; }
         .count-select-wrap select:focus { outline: none; border-color: #fbbf24; background-color: #ffffff; }
 
-        .export-btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.9rem; border-radius: 0.7rem; background-color: #0f172a; color: #ffffff; font-size: 0.8rem; font-weight: 600; text-decoration: none; }
-        .export-btn:hover { background-color: #1e293b; }
-        .export-btn .material-symbols-outlined { font-size: 1rem; }
-
-        .custom-date-row { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; }
-        .custom-date-row input[type="date"] { height: 2.25rem; padding: 0 0.6rem; border: 1px solid #cbd5e1; border-radius: 0.75rem; font-size: 0.8rem; background-color: #f1f5f9; }
 
         /* ---- Stat cards + comparison ---- */
         .stats-grid-v2 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 1.25rem 0; }
@@ -432,9 +367,6 @@ if (($_GET['export'] ?? '') === 'csv') {
                     <h1>Sales Report</h1>
                     <p class="field-hint">
                         <?= htmlspecialchars($rangeLabels[$range]) ?>
-                        <?php if ($range === 'custom'): ?>
-                            (<?= htmlspecialchars(date('M j, Y', strtotime($customStart))) ?> &ndash; <?= htmlspecialchars(date('M j, Y', strtotime($customEnd))) ?>)
-                        <?php endif; ?>
                     </p>
                 </div>
                 <div class="dh-user">
@@ -450,44 +382,22 @@ if (($_GET['export'] ?? '') === 'csv') {
                 <div class="sales-toolbar">
                     <div class="filter-pills">
                         <?php foreach ($rangeLabels as $value => $label): ?>
-                            <?php if ($value === 'custom') continue; // custom gets its own control below ?>
-                            <a href="<?= htmlspecialchars(sales_url(['range' => $value, 'start_date' => null, 'end_date' => null, 'export' => null])) ?>"
+                            <a href="<?= htmlspecialchars(sales_url(['range' => $value])) ?>"
                                class="pill <?= $range === $value ? 'pill-active' : '' ?>"><?= $label ?></a>
                         <?php endforeach; ?>
-                        <a href="<?= htmlspecialchars(sales_url(['range' => 'custom', 'export' => null])) ?>"
-                           class="pill <?= $range === 'custom' ? 'pill-active' : '' ?>">Custom Range</a>
                     </div>
 
                     <div class="toolbar-right">
                         <form method="GET" action="sales.php" class="count-select-wrap">
                             <input type="hidden" name="range" value="<?= htmlspecialchars($range) ?>">
-                            <?php if ($range === 'custom'): ?>
-                                <input type="hidden" name="start_date" value="<?= htmlspecialchars($customStart) ?>">
-                                <input type="hidden" name="end_date" value="<?= htmlspecialchars($customEnd) ?>">
-                            <?php endif; ?>
                             <label for="status">Count:</label>
                             <select id="status" name="status" onchange="this.form.submit()">
                                 <option value="completed" <?= $statusFilter === 'completed' ? 'selected' : '' ?>>Completed orders only</option>
                                 <option value="all" <?= $statusFilter === 'all' ? 'selected' : '' ?>>All orders (excluding cancelled)</option>
                             </select>
                         </form>
-
-                        <a href="<?= htmlspecialchars(sales_url(['export' => 'csv'])) ?>" class="export-btn">
-                            <span class="material-symbols-outlined">download</span> Export CSV
-                        </a>
                     </div>
                 </div>
-
-                <?php if ($range === 'custom'): ?>
-                    <form method="GET" class="custom-date-row">
-                        <input type="hidden" name="range" value="custom">
-                        <input type="hidden" name="status" value="<?= htmlspecialchars($statusFilter) ?>">
-                        <input type="date" name="start_date" value="<?= htmlspecialchars($customStart) ?>" required>
-                        <span class="field-hint">to</span>
-                        <input type="date" name="end_date" value="<?= htmlspecialchars($customEnd) ?>" required>
-                        <button type="submit" class="btn-primary" style="padding: 0.4rem 1rem;">Apply</button>
-                    </form>
-                <?php endif; ?>
             </section>
 
             <!-- Summary stats with previous-period comparison -->

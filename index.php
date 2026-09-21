@@ -266,7 +266,7 @@ $featuredProducts = $stmt->fetchAll();
                     <p>Our team replies within the day, every day of the week.</p>
                 </div>
                 <div class="home-contact-info">
-                    <div><span class="label">Call / Viber</span>0917 123 4567</div>
+                    <div><span class="label">Call / Viber</span>0926 625 5362</div>
                     <div><span class="label">Email</span>support@mpdelectrical.ph</div>
                     <div><span class="label">Store hours</span>Mon&ndash;Sat, 8AM&ndash;6PM</div>
                 </div>

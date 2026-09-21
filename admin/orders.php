@@ -8,13 +8,9 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     exit;
 }
 
-$validStatuses = ['pending', 'processing', 'completed', 'cancelled'];
-$statusClasses = [
-    'pending'    => 'pending',
-    'processing' => 'processing',
-    'completed'  => 'completed',
-    'cancelled'  => 'cancelled',
-];
+// Order status comes from deliveries.status (single source of truth).
+// Valid statuses, labels and CSS classes are shared with the other pages.
+require_once '../config/delivery_status.php';
 
 /**
  * Checks whether a table exists (and is queryable) without crashing the
@@ -45,32 +41,10 @@ function columnExists(PDO $pdo, string $table, string $column): bool {
 }
 
 $hasOrderItems    = tableExists($pdo, 'order_items');
-$hasDeliveries    = tableExists($pdo, 'deliveries');
 $hasPaymentMethod = columnExists($pdo, 'orders', 'payment_method');
 
-// ---- Update status ----
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_status') {
-    $id     = (int) ($_POST['id'] ?? 0);
-    $status = $_POST['status'] ?? '';
-
-    if (in_array($status, $validStatuses, true)) {
-        $stmt = $pdo->prepare("UPDATE orders SET status = :status WHERE id = :id");
-        $stmt->execute(['status' => $status, 'id' => $id]);
-
-        if ($stmt->rowCount() > 0) {
-            $_SESSION['success'] = "Order #{$id} status updated to " . ucfirst($status) . ".";
-        } else {
-            $_SESSION['success'] = "No changes made to Order #{$id} (status was already " . ucfirst($status) . ", or the order wasn't found).";
-        }
-    }
-
-    // NOTE: intentionally NOT re-appending the previous filters here.
-    // Redirecting back into the same filtered/searched view after a status
-    // change makes the just-updated order disappear from view (since it no
-    // longer matches that filter), which looks like the update never saved.
-    header('Location: orders.php');
-    exit;
-}
+// NOTE: there is intentionally no status update here anymore. Status is
+// managed on the Deliveries page (deliveries.status is the single source of truth).
 
 // ---- Delete ----
 if (isset($_GET['delete'])) {
@@ -101,19 +75,19 @@ $selectExtra = '';
 if ($hasOrderItems) {
     $selectExtra .= ", (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS item_count";
 }
-if ($hasDeliveries) {
-    $selectExtra .= ", (SELECT d.id FROM deliveries d WHERE d.order_id = o.id LIMIT 1) AS delivery_id";
-}
+// Status = the delivery's status. An order with no delivery row yet counts as pending.
+$selectExtra .= ", d.id AS delivery_id, COALESCE(d.status, 'pending') AS delivery_status";
 
 $sql = "SELECT o.*, u.full_name, u.email $selectExtra
         FROM orders o
-        JOIN users u ON o.user_id = u.id";
+        JOIN users u ON o.user_id = u.id
+        LEFT JOIN deliveries d ON d.order_id = o.id";
 
 $where  = [];
 $params = [];
 
 if ($filter !== '') {
-    $where[] = "o.status = :status";
+    $where[] = "COALESCE(d.status, 'pending') = :status";
     $params['status'] = $filter;
 }
 
@@ -155,17 +129,17 @@ $allFiltered = $stmt->fetchAll();
 $statCounts = array_fill_keys($validStatuses, 0);
 $totalSales = 0.0;
 foreach ($allFiltered as $o) {
-    if (isset($statCounts[$o['status']])) {
-        $statCounts[$o['status']]++;
+    if (isset($statCounts[$o['delivery_status']])) {
+        $statCounts[$o['delivery_status']]++;
     }
-    if ($o['status'] !== 'cancelled') {
+    if ($o['delivery_status'] !== 'cancelled') {
         $totalSales += (float) $o['total_amount'];
     }
 }
 $totalCount     = count($allFiltered);
 $nonCancelled   = $totalCount - $statCounts['cancelled'];
 $avgOrderValue  = $nonCancelled > 0 ? $totalSales / $nonCancelled : 0.0;
-$needsAttention = $statCounts['pending'] + $statCounts['processing'];
+$needsAttention = $statCounts['pending'] + $statCounts['out_for_delivery'];
 
 // ---- Pagination ----
 $perPage    = 10;
@@ -341,7 +315,7 @@ function orders_url(array $overrides = []): string
             <div class="orders-header-bento">
                 <div>
                     <h1>Orders</h1>
-                    <p class="field-hint">Track, update, and fulfill customer orders.</p>
+                    <p class="field-hint">Track customer orders. Status is managed in Deliveries.</p>
                 </div>
                 <div class="dh-user">
                     <div class="dh-avatar"><?= htmlspecialchars(strtoupper(substr($_SESSION['full_name'] ?? 'A', 0, 1))) ?></div>
@@ -360,7 +334,7 @@ function orders_url(array $overrides = []): string
                         <span class="material-symbols-outlined">receipt_long</span>
                     </div>
                     <div class="stat-card-v2-value"><?= (int) $totalCount ?></div>
-                    <div class="stat-card-v2-sub"><?= (int) $statCounts['completed'] ?> completed</div>
+                    <div class="stat-card-v2-sub"><?= (int) $statCounts['delivered'] ?> delivered</div>
                 </div>
                 <div class="stat-card-v2">
                     <div class="stat-card-v2-top">
@@ -384,7 +358,7 @@ function orders_url(array $overrides = []): string
                         <span class="material-symbols-outlined">pending_actions</span>
                     </div>
                     <div class="stat-card-v2-value"><?= (int) $needsAttention ?></div>
-                    <div class="stat-card-v2-sub"><?= (int) $statCounts['pending'] ?> pending &middot; <?= (int) $statCounts['processing'] ?> processing</div>
+                    <div class="stat-card-v2-sub"><?= (int) $statCounts['pending'] ?> pending &middot; <?= (int) $statCounts['out_for_delivery'] ?> out for delivery</div>
                 </div>
             </section>
 
@@ -405,7 +379,7 @@ function orders_url(array $overrides = []): string
                         <?php foreach ($validStatuses as $s): ?>
                             <a href="<?= htmlspecialchars(orders_url(['status' => $s, 'page' => null])) ?>" class="pill <?= $filter === $s ? 'pill-active' : '' ?>">
                                 <span class="pill-dot pill-dot-<?= $statusClasses[$s] ?>"></span>
-                                <?= ucfirst($s) ?>
+                                <?= $statusLabels[$s] ?>
                                 <span class="pill-count"><?= (int) $statCounts[$s] ?></span>
                             </a>
                         <?php endforeach; ?>
@@ -463,7 +437,7 @@ function orders_url(array $overrides = []): string
                         <tbody>
                             <?php foreach ($orders as $order): ?>
                                 <?php
-                                    $isUrgent = in_array($order['status'], ['pending', 'processing'], true)
+                                    $isUrgent = in_array($order['delivery_status'], ['pending', 'out_for_delivery'], true)
                                         && strtotime($order['created_at']) <= strtotime('-3 days');
                                 ?>
                                 <tr class="<?= $isUrgent ? 'row-urgent' : '' ?>">
@@ -491,29 +465,17 @@ function orders_url(array $overrides = []): string
                                         </td>
                                     <?php endif; ?>
                                     <td>
-                                        <span class="status-badge status-<?= $statusClasses[$order['status']] ?>">
-                                            <span class="status-dot status-dot-<?= $statusClasses[$order['status']] ?>"></span>
-                                            <?= ucfirst($order['status']) ?>
+                                        <span class="status-badge status-<?= $statusClasses[$order['delivery_status']] ?>">
+                                            <span class="status-dot status-dot-<?= $statusClasses[$order['delivery_status']] ?>"></span>
+                                            <?= $statusLabels[$order['delivery_status']] ?>
                                         </span>
-                                        <form method="POST" action="orders.php" class="status-form">
-                                            <input type="hidden" name="action" value="update_status">
-                                            <input type="hidden" name="id" value="<?= (int) $order['id'] ?>">
-                                            <div class="status-form-row">
-                                                <select name="status">
-                                                    <?php foreach ($validStatuses as $s): ?>
-                                                        <option value="<?= $s ?>" <?= $order['status'] === $s ? 'selected' : '' ?>><?= ucfirst($s) ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                                <button type="submit" class="btn-edit">Update</button>
-                                            </div>
-                                        </form>
                                     </td>
                                     <td><?= date('M j, Y', strtotime($order['created_at'])) ?></td>
                                     <td class="admin-table-actions">
                                         <a href="order-details.php?id=<?= (int) $order['id'] ?>" class="btn-edit">View</a>
-                                        <?php if ($hasDeliveries && !empty($order['delivery_id'])): ?>
-                                            <a href="deliveries.php?edit=<?= (int) $order['delivery_id'] ?>" class="delivery-link" title="View delivery record">
-                                                <span class="material-symbols-outlined">local_shipping</span> Delivery
+                                        <?php if (!empty($order['delivery_id'])): ?>
+                                            <a href="deliveries.php?edit=<?= (int) $order['delivery_id'] ?>" class="delivery-link" title="Update status in Deliveries">
+                                                <span class="material-symbols-outlined">local_shipping</span> Update Status
                                             </a>
                                         <?php endif; ?>
                                         <a href="orders.php?delete=<?= (int) $order['id'] ?>" class="btn-danger"

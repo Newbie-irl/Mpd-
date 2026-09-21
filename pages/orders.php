@@ -7,32 +7,51 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$validStatuses = ['pending', 'processing', 'completed', 'cancelled'];
+// Order status = deliveries.status (single source of truth). Valid statuses,
+// labels and badge classes are shared with the admin pages.
+require_once '../config/delivery_status.php';
 
-// ---- Cancel order (only while still pending) ----
+// ---- Cancel order (only while the delivery is still pending) ----
 if (isset($_GET['cancel'])) {
     $orderId = (int) $_GET['cancel'];
 
-    $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = :id AND user_id = :user_id");
-    $stmt->execute(['id' => $orderId, 'user_id' => $_SESSION['user_id']]);
-    $order = $stmt->fetch();
-
-    if ($order && $order['status'] === 'pending') {
+    try {
         $pdo->beginTransaction();
 
-        $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE id = :id")
-            ->execute(['id' => $orderId]);
+        // Lock this customer's delivery row so its status can't change mid-cancel
+        $stmt = $pdo->prepare(
+            "SELECT d.id, d.status
+             FROM deliveries d
+             JOIN orders o ON o.id = d.order_id
+             WHERE o.id = :id AND o.user_id = :user_id
+             FOR UPDATE"
+        );
+        $stmt->execute(['id' => $orderId, 'user_id' => $_SESSION['user_id']]);
+        $delivery = $stmt->fetch();
 
-        // Return the items to stock
-        $items = $pdo->prepare("SELECT product_id, quantity FROM order_items WHERE order_id = :id");
-        $items->execute(['id' => $orderId]);
-        $restock = $pdo->prepare("UPDATE products SET stock = stock + :qty WHERE id = :id");
-        foreach ($items->fetchAll() as $item) {
-            $restock->execute(['qty' => $item['quantity'], 'id' => $item['product_id']]);
+        if ($delivery && $delivery['status'] === 'pending') {
+            $pdo->prepare("UPDATE deliveries SET status = 'cancelled' WHERE id = :id")
+                ->execute(['id' => $delivery['id']]);
+
+            // Return the items to stock
+            $items = $pdo->prepare("SELECT product_id, quantity FROM order_items WHERE order_id = :id");
+            $items->execute(['id' => $orderId]);
+            $restock = $pdo->prepare("UPDATE products SET stock = stock + :qty WHERE id = :id");
+            foreach ($items->fetchAll() as $item) {
+                $restock->execute(['qty' => $item['quantity'], 'id' => $item['product_id']]);
+            }
+
+            $pdo->commit();
+            $_SESSION['success'] = "Order #{$orderId} was cancelled.";
+        } else {
+            $pdo->rollBack();
+            $_SESSION['success'] = "Order #{$orderId} can no longer be cancelled.";
         }
-
-        $pdo->commit();
-        $_SESSION['success'] = "Order #{$orderId} was cancelled.";
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $_SESSION['success'] = "Sorry, we couldn't cancel that order. Please try again.";
     }
 
     header('Location: orders.php');
@@ -83,17 +102,26 @@ if ($filter !== '' && !in_array($filter, $validStatuses, true)) {
 }
 
 // ---- Load ALL of this customer's orders (used for the stat chips) ----
-$stmt = $pdo->prepare("SELECT * FROM orders WHERE user_id = :user_id ORDER BY created_at DESC");
+// Status shown to the customer is the delivery's status. An order with no
+// delivery row yet counts as pending.
+$stmt = $pdo->prepare(
+    "SELECT o.*, COALESCE(d.status, 'pending') AS delivery_status,
+            d.scheduled_date, d.rider_name
+     FROM orders o
+     LEFT JOIN deliveries d ON d.order_id = o.id
+     WHERE o.user_id = :user_id
+     ORDER BY o.created_at DESC"
+);
 $stmt->execute(['user_id' => $_SESSION['user_id']]);
 $allOrders = $stmt->fetchAll();
 
 $statusCounts = array_fill_keys($validStatuses, 0);
 $totalSpent   = 0.0;
 foreach ($allOrders as $o) {
-    if (isset($statusCounts[$o['status']])) {
-        $statusCounts[$o['status']]++;
+    if (isset($statusCounts[$o['delivery_status']])) {
+        $statusCounts[$o['delivery_status']]++;
     }
-    if ($o['status'] !== 'cancelled') {
+    if ($o['delivery_status'] !== 'cancelled') {
         $totalSpent += (float) $o['total_amount'];
     }
 }
@@ -102,7 +130,7 @@ $totalOrdersCount = count($allOrders);
 // ---- Apply the filter for what actually gets displayed ----
 $orders = $filter === ''
     ? $allOrders
-    : array_values(array_filter($allOrders, fn($o) => $o['status'] === $filter));
+    : array_values(array_filter($allOrders, fn($o) => $o['delivery_status'] === $filter));
 
 // ---- Load line items for the visible orders in one query ----
 $itemsByOrder = [];
@@ -121,17 +149,13 @@ if (!empty($orders)) {
     }
 }
 
-$statusLabels = [
-    'pending'    => 'Pending',
-    'processing' => 'Processing',
-    'completed'  => 'Completed',
-    'cancelled'  => 'Cancelled',
-];
+// $statusLabels / $statusClasses come from config/delivery_status.php
 $statusHints = [
-    'pending'    => 'Awaiting confirmation',
-    'processing' => 'Being prepared for delivery',
-    'completed'  => 'Delivered / picked up',
-    'cancelled'  => 'This order was cancelled',
+    'pending'          => 'Awaiting confirmation',
+    'out_for_delivery' => 'On its way to you',
+    'delivered'        => 'Delivered',
+    'failed'           => 'Delivery was unsuccessful. Please contact us.',
+    'cancelled'        => 'This order was cancelled',
 ];
 
 $cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
@@ -278,7 +302,7 @@ $cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
                 <div class="order-stat-card">
                     <div class="order-stat-top"><span>Total Orders</span><span class="material-symbols-outlined">receipt_long</span></div>
                     <div class="order-stat-value"><?= $totalOrdersCount ?></div>
-                    <div class="order-stat-sub"><?= $statusCounts['pending'] + $statusCounts['processing'] ?> active</div>
+                    <div class="order-stat-sub"><?= $statusCounts['pending'] + $statusCounts['out_for_delivery'] ?> active</div>
                 </div>
                 <div class="order-stat-card">
                     <div class="order-stat-top"><span>Total Spent</span><span class="material-symbols-outlined">payments</span></div>
@@ -347,19 +371,22 @@ $cartCount = !empty($_SESSION['cart']) ? array_sum($_SESSION['cart']) : 0;
                             <div class="order-total">&#8369;<?= number_format($order['total_amount'], 2) ?></div>
 
                             <div class="order-status-cell">
-                                <span class="status-badge status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']] ?? ucfirst($order['status'])) ?></span>
-                                <span class="order-status-hint"><?= htmlspecialchars($statusHints[$order['status']] ?? '') ?></span>
+                                <span class="status-badge status-<?= $statusClasses[$order['delivery_status']] ?>"><?= htmlspecialchars($statusLabels[$order['delivery_status']]) ?></span>
+                                <span class="order-status-hint"><?= htmlspecialchars($statusHints[$order['delivery_status']] ?? '') ?></span>
+                                <?php if (!empty($order['scheduled_date']) && in_array($order['delivery_status'], ['pending', 'out_for_delivery'], true)): ?>
+                                    <span class="order-status-hint">Scheduled: <?= date('M j, Y', strtotime($order['scheduled_date'])) ?></span>
+                                <?php endif; ?>
                             </div>
 
                             <div class="order-date"><?= date('M j, Y', strtotime($order['created_at'])) ?></div>
 
                             <div class="order-actions">
-                                <?php if ($order['status'] === 'pending'): ?>
+                                <?php if ($order['delivery_status'] === 'pending'): ?>
                                     <a href="orders.php?cancel=<?= (int) $order['id'] ?>" class="btn-mini btn-mini-danger"
                                        onclick="return confirm('Cancel this order?');">
                                         <span class="material-symbols-outlined">close</span> Cancel
                                     </a>
-                                <?php elseif (in_array($order['status'], ['completed', 'cancelled'], true)): ?>
+                                <?php elseif (in_array($order['delivery_status'], ['delivered', 'failed', 'cancelled'], true)): ?>
                                     <a href="orders.php?reorder=<?= (int) $order['id'] ?>" class="btn-mini btn-mini-primary">
                                         <span class="material-symbols-outlined">replay</span> Reorder
                                     </a>
