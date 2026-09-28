@@ -213,25 +213,6 @@ foreach ($byCategory as $c) {
     $maxCategoryRevenue = max($maxCategoryRevenue, (float) $c['revenue']);
 }
 
-// ---- Top customers ----
-$stmt = $pdo->prepare(
-    "SELECT u.id, u.full_name, u.email,
-            COUNT(o.id) AS order_count,
-            COALESCE(SUM(o.total_amount), 0) AS revenue
-     FROM orders o
-     JOIN users u ON o.user_id = u.id
-     WHERE $where
-     GROUP BY u.id, u.full_name, u.email
-     ORDER BY revenue DESC
-     LIMIT 5"
-);
-$stmt->execute($params);
-$topCustomers = $stmt->fetchAll();
-$maxCustomerRevenue = 0;
-foreach ($topCustomers as $c) {
-    $maxCustomerRevenue = max($maxCustomerRevenue, (float) $c['revenue']);
-}
-
 // Helper to build a query string that preserves the current filters while
 // changing/adding a param.
 function sales_url(array $overrides = []): string
@@ -331,9 +312,6 @@ function sales_url(array $overrides = []): string
         .admin-table tbody tr:nth-child(even) { background-color: #f8fafc; }
         .admin-table tbody tr:hover { background-color: #e0f2fe; }
 
-        .customer-name { font-weight: 600; color: #0f172a; }
-        .customer-email { font-size: 0.75rem; color: #64748b; }
-
         @media (max-width: 900px) {
             .sales-header-bento { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
             .sales-toolbar { flex-direction: column; align-items: stretch; }
@@ -351,6 +329,7 @@ function sales_url(array $overrides = []): string
                 <a href="products.php">Products</a>
                 <a href="orders.php">Orders</a>
                 <a href="deliveries.php">Deliveries</a>
+                <a href="riders.php">Riders</a>
                 <a href="sales.php" class="active">Sales Report</a>
             </nav>
             <div class="admin-navbar-actions">
@@ -550,41 +529,6 @@ function sales_url(array $overrides = []): string
                 </section>
 
             </div>
-
-            <section class="admin-panel" style="margin-top: 1.25rem;">
-                <h2>Top Customers</h2>
-                <?php if (empty($topCustomers)): ?>
-                    <p class="empty-state">No customer orders in this period.</p>
-                <?php else: ?>
-                    <div class="admin-table-wrapper">
-                    <table class="admin-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Customer</th>
-                                <th>Orders</th>
-                                <th>Revenue</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($topCustomers as $i => $customer): ?>
-                                <?php $barPct = $maxCustomerRevenue > 0 ? ($customer['revenue'] / $maxCustomerRevenue) * 100 : 0; ?>
-                                <tr>
-                                    <td><?= $i + 1 ?></td>
-                                    <td class="rank-bar-cell">
-                                        <div class="rank-bar-track" style="width: <?= $barPct ?>%"></div>
-                                        <div class="customer-name"><?= htmlspecialchars($customer['full_name']) ?></div>
-                                        <div class="customer-email"><?= htmlspecialchars($customer['email']) ?></div>
-                                    </td>
-                                    <td><?= (int) $customer['order_count'] ?></td>
-                                    <td>&#8369;<?= number_format($customer['revenue'], 2) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                    </div>
-                <?php endif; ?>
-            </section>
 
         </main>
     </div>

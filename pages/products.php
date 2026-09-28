@@ -19,25 +19,50 @@ if ($filter !== '' && !in_array($filter, $categories, true)) {
 // ---- Optional search ----
 $search = trim($_GET['search'] ?? '');
 
-// ---- Build product query ----
-$sql = "SELECT * FROM products WHERE 1=1";
+// ---- Build product query (shared WHERE for both the count and the page) ----
+$where  = "WHERE 1=1";
 $params = [];
 
 if ($filter !== '') {
-    $sql .= " AND category = :category";
+    $where .= " AND category = :category";
     $params['category'] = $filter;
 }
 
 if ($search !== '') {
-    $sql .= " AND name LIKE :search";
+    $where .= " AND name LIKE :search";
     $params['search'] = '%' . $search . '%';
 }
 
-$sql .= " ORDER BY created_at DESC";
+// ---- Total count (for the pager) ----
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM products $where");
+$countStmt->execute($params);
+$totalCount = (int) $countStmt->fetchColumn();
 
+// ---- Pagination ----
+$perPage    = 10;
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page       = max(1, min($totalPages, (int) ($_GET['page'] ?? 1)));
+$offset     = ($page - 1) * $perPage;
+
+// ---- Load this page of products ----
+$sql = "SELECT * FROM products $where ORDER BY created_at DESC LIMIT $perPage OFFSET $offset";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $products = $stmt->fetchAll();
+
+// Helper to build a query string that preserves the current filters while
+// changing one param (e.g. page number).
+function products_url(array $overrides = []): string
+{
+    $params = array_merge($_GET, $overrides);
+    foreach ($params as $k => $v) {
+        if ($v === '' || $v === null) {
+            unset($params[$k]);
+        }
+    }
+    $qs = http_build_query($params);
+    return 'products.php' . ($qs !== '' ? '?' . $qs : '');
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -46,6 +71,42 @@ $products = $stmt->fetchAll();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Products - MPD Electrical Supply & Services</title>
     <link rel="stylesheet" href="../assets/css/style.css">
+    <!--
+      NOTE: Pagination styles are embedded here directly (same approach used
+      on the admin pages) so they render correctly even if style.css doesn't
+      define them for the storefront layout.
+    -->
+    <style>
+        .product-pagination {
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 1rem; margin-top: 2rem; padding-top: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        .product-pagination-info { font-size: 0.85rem; color: #64748b; }
+        .product-pagination-nav { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+        .product-page-btn, .product-page-nav-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 2.25rem; height: 2.25rem; padding: 0 0.7rem; border-radius: 9999px;
+            background-color: #f1f5f9; color: #334155; text-decoration: none;
+            font-size: 0.85rem; font-weight: 600; border: 1px solid transparent;
+            transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+        }
+        .product-page-btn:hover, .product-page-nav-btn:hover:not(.disabled) {
+            background-color: #fbbf24; color: #451a03;
+        }
+        .product-page-btn.active {
+            background-color: #f59e0b; color: #451a03; cursor: default;
+        }
+        .product-page-nav-btn.disabled {
+            opacity: 0.4; pointer-events: none;
+        }
+        .product-page-ellipsis { color: #94a3b8; padding: 0 0.15rem; font-size: 0.85rem; }
+
+        @media (max-width: 640px) {
+            .product-pagination { flex-direction: column; align-items: stretch; text-align: center; }
+            .product-pagination-nav { justify-content: center; }
+        }
+    </style>
 </head>
 <body>
 
@@ -139,6 +200,23 @@ $products = $stmt->fetchAll();
                     </div>
                 <?php endforeach; ?>
             </div>
+
+            <?php if ($totalPages > 1): ?>
+                <div class="product-pagination">
+                    <div class="product-pagination-info">
+                        Showing <strong><?= $offset + 1 ?></strong>&ndash;<strong><?= min($offset + $perPage, $totalCount) ?></strong> of <strong><?= $totalCount ?></strong> products
+                    </div>
+                    <div class="product-pagination-nav">
+                        <a class="product-page-nav-btn <?= $page <= 1 ? 'disabled' : '' ?>" href="<?= htmlspecialchars(products_url(['page' => max(1, $page - 1)])) ?>" aria-label="Previous page">&lsaquo;</a>
+
+                        <?php for ($p = 1; $p <= $totalPages; $p++): ?>
+                            <a class="product-page-btn <?= $p === $page ? 'active' : '' ?>" href="<?= htmlspecialchars(products_url(['page' => $p])) ?>"><?= $p ?></a>
+                        <?php endfor; ?>
+
+                        <a class="product-page-nav-btn <?= $page >= $totalPages ? 'disabled' : '' ?>" href="<?= htmlspecialchars(products_url(['page' => min($totalPages, $page + 1)])) ?>" aria-label="Next page">&rsaquo;</a>
+                    </div>
+                </div>
+            <?php endif; ?>
         <?php endif; ?>
 
     </main>

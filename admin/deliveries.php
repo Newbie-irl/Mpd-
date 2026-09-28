@@ -8,9 +8,37 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     exit;
 }
 
-// Statuses (valid list, labels, CSS classes) live in one shared file so every
-// page agrees. deliveries.status is the single source of truth for order status.
-require_once '../config/delivery_status.php';
+// deliveries.status is the single source of truth for an order's status, so
+// 'cancelled' (set when a customer cancels a pending order) has to be a known
+// status here too, otherwise those rows have no label/badge class.
+$validStatuses = ['pending', 'out_for_delivery', 'delivered', 'failed', 'cancelled'];
+
+// Display labels + CSS classes. The classes reuse the existing status-badge
+// styles (out_for_delivery -> "processing", delivered -> "completed",
+// failed/cancelled -> "cancelled") so no new CSS is needed.
+$statusLabels = [
+    'pending'          => 'Pending',
+    'out_for_delivery' => 'Out for Delivery',
+    'delivered'        => 'Delivered',
+    'failed'           => 'Failed',
+    'cancelled'        => 'Cancelled',
+];
+$statusClasses = [
+    'pending'          => 'pending',
+    'out_for_delivery' => 'processing',
+    'delivered'        => 'completed',
+    'failed'           => 'cancelled',
+    'cancelled'        => 'cancelled',
+];
+
+// Safe lookups: an unexpected status value in the DB shows a readable
+// fallback instead of throwing "Undefined array key" warnings.
+function status_label(array $labels, string $status): string {
+    return $labels[$status] ?? ucwords(str_replace('_', ' ', $status));
+}
+function status_class(array $classes, string $status): string {
+    return $classes[$status] ?? 'pending';
+}
 
 $errors  = [];
 $success = '';
@@ -21,10 +49,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     $recipientName = trim($_POST['recipient_name'] ?? '');
     $address       = trim($_POST['address'] ?? '');
     $contactNumber = trim($_POST['contact_number'] ?? '');
-    $riderName     = trim($_POST['rider_name'] ?? '');
+    $riderId       = ($_POST['rider_id'] ?? '') !== '' ? (int) $_POST['rider_id'] : null;
     $status        = $_POST['status'] ?? '';
     $scheduledDate = $_POST['scheduled_date'] ?? '';
     $notes         = trim($_POST['notes'] ?? '');
+
+    // rider_name is kept in sync from the assigned rider's account so
+    // existing pages that read rider_name (order-details.php, etc.) still
+    // work without changes.
+    $riderName = null;
+    if ($riderId !== null) {
+        $stmt = $pdo->prepare("SELECT full_name FROM users WHERE id = :id AND role = 'rider'");
+        $stmt->execute(['id' => $riderId]);
+        $riderRow = $stmt->fetch();
+        if ($riderRow) {
+            $riderName = $riderRow['full_name'];
+        } else {
+            $errors[] = "Please choose a valid rider.";
+            $riderId = null;
+        }
+    }
 
     if ($recipientName === '') {
         $errors[] = "Recipient name is required.";
@@ -34,65 +78,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     }
 
     if (empty($errors)) {
-        try {
-            $pdo->beginTransaction();
-
-            // Lock the row so two admins can't change the same delivery at once
-            $stmt = $pdo->prepare("SELECT order_id, status FROM deliveries WHERE id = :id FOR UPDATE");
-            $stmt->execute(['id' => $id]);
-            $current = $stmt->fetch();
-            if (!$current) {
-                throw new RuntimeException("Delivery not found.");
-            }
-
-            $oldStatus = $current['status'];
-
-            // Cancelled is final; a delivered order can't be cancelled
-            if ($oldStatus === 'cancelled' && $status !== 'cancelled') {
-                throw new RuntimeException("A cancelled delivery can't be reopened.");
-            }
-            if ($oldStatus === 'delivered' && $status === 'cancelled') {
-                throw new RuntimeException("A delivered order can't be cancelled.");
-            }
-
-            // Checkout deducts stock, so give it back the moment the order
-            // moves INTO cancelled (only once, since cancelled is final).
-            if ($oldStatus !== 'cancelled' && $status === 'cancelled') {
-                $restore = $pdo->prepare(
-                    "UPDATE products p
-                     JOIN order_items oi ON oi.product_id = p.id
-                     SET p.stock = p.stock + oi.quantity
-                     WHERE oi.order_id = :order_id"
-                );
-                $restore->execute(['order_id' => $current['order_id']]);
-            }
-
-            $stmt = $pdo->prepare(
-                "UPDATE deliveries
-                 SET recipient_name = :recipient_name, address = :address,
-                     contact_number = :contact_number, rider_name = :rider_name,
-                     status = :status, scheduled_date = :scheduled_date, notes = :notes
-                 WHERE id = :id"
-            );
-            $stmt->execute([
-                'recipient_name' => $recipientName,
-                'address'        => $address !== '' ? $address : null,
-                'contact_number' => $contactNumber !== '' ? $contactNumber : null,
-                'rider_name'     => $riderName !== '' ? $riderName : null,
-                'status'         => $status,
-                'scheduled_date' => $scheduledDate !== '' ? $scheduledDate : null,
-                'notes'          => $notes !== '' ? $notes : null,
-                'id'             => $id,
-            ]);
-
-            $pdo->commit();
-            $success = "Delivery updated.";
-        } catch (Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $errors[] = $e->getMessage();
-        }
+        $stmt = $pdo->prepare(
+            "UPDATE deliveries
+             SET recipient_name = :recipient_name, address = :address,
+                 contact_number = :contact_number, rider_id = :rider_id, rider_name = :rider_name,
+                 status = :status, scheduled_date = :scheduled_date, notes = :notes
+             WHERE id = :id"
+        );
+        $stmt->execute([
+            'recipient_name' => $recipientName,
+            'address'        => $address !== '' ? $address : null,
+            'contact_number' => $contactNumber !== '' ? $contactNumber : null,
+            'rider_id'       => $riderId,
+            'rider_name'     => $riderName,
+            'status'         => $status,
+            'scheduled_date' => $scheduledDate !== '' ? $scheduledDate : null,
+            'notes'          => $notes !== '' ? $notes : null,
+            'id'             => $id,
+        ]);
+        $success = "Delivery updated.";
     }
 }
 
@@ -133,6 +137,9 @@ $sql .= " ORDER BY d.created_at DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $deliveries = $stmt->fetchAll();
+
+// ---- Riders available to assign ----
+$riders = $pdo->query("SELECT id, full_name FROM users WHERE role = 'rider' ORDER BY full_name ASC")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -148,15 +155,17 @@ $deliveries = $stmt->fetchAll();
 
         <header class="admin-navbar">
             <div class="logo">MPD Admin</div>
-          <nav>
-    <a href="dashboard.php">Dashboard</a>
-    <a href="products.php">Products</a>
-    <a href="orders.php">Orders</a>
-    <a href="deliveries.php" class="active">Deliveries</a>
-</nav>
+            <nav>
+                <a href="dashboard.php">Dashboard</a>
+                <a href="products.php">Products</a>
+                <a href="orders.php">Orders</a>
+                <a href="deliveries.php" class="active">Deliveries</a>
+                <a href="riders.php">Riders</a>
+                <a href="sales.php">Sales Report</a>
+            </nav>
             <div class="admin-navbar-actions">
                 <a href="../index.php">&larr; Back to site</a>
-                <a href="../index.php?logout=1">Logout</a>
+                <a href="../logout.php">Logout</a>
             </div>
         </header>
 
@@ -210,9 +219,16 @@ $deliveries = $stmt->fetchAll();
                             </div>
 
                             <div class="form-group">
-                                <label for="rider_name">Assigned Rider</label>
-                                <input type="text" id="rider_name" name="rider_name"
-                                       value="<?= htmlspecialchars($editDelivery['rider_name'] ?? '') ?>">
+                                <label for="rider_id">Assigned Rider</label>
+                                <select id="rider_id" name="rider_id">
+                                    <option value="">Unassigned</option>
+                                    <?php foreach ($riders as $rider): ?>
+                                        <option value="<?= (int) $rider['id'] ?>" <?= (int) ($editDelivery['rider_id'] ?? 0) === (int) $rider['id'] ? 'selected' : '' ?>><?= htmlspecialchars($rider['full_name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php if (empty($riders)): ?>
+                                    <span class="field-hint">No riders have signed up yet.</span>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -221,12 +237,7 @@ $deliveries = $stmt->fetchAll();
                                 <label for="status">Status</label>
                                 <select id="status" name="status">
                                     <?php foreach ($validStatuses as $s): ?>
-                                        <?php
-                                            // Cancelled is final; delivered can't be cancelled
-                                            if ($editDelivery['status'] === 'cancelled' && $s !== 'cancelled') continue;
-                                            if ($editDelivery['status'] === 'delivered' && $s === 'cancelled') continue;
-                                        ?>
-                                        <option value="<?= $s ?>" <?= $editDelivery['status'] === $s ? 'selected' : '' ?>><?= $statusLabels[$s] ?></option>
+                                        <option value="<?= $s ?>" <?= $editDelivery['status'] === $s ? 'selected' : '' ?>><?= htmlspecialchars(status_label($statusLabels, $s)) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -255,7 +266,7 @@ $deliveries = $stmt->fetchAll();
                 <div class="filter-tabs">
                     <a href="deliveries.php" class="<?= $filter === '' ? 'active' : '' ?>">All</a>
                     <?php foreach ($validStatuses as $s): ?>
-                        <a href="deliveries.php?status=<?= $s ?>" class="<?= $filter === $s ? 'active' : '' ?>"><?= $statusLabels[$s] ?></a>
+                        <a href="deliveries.php?status=<?= $s ?>" class="<?= $filter === $s ? 'active' : '' ?>"><?= htmlspecialchars(status_label($statusLabels, $s)) ?></a>
                     <?php endforeach; ?>
                 </div>
 
@@ -301,8 +312,8 @@ $deliveries = $stmt->fetchAll();
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <span class="status-badge status-<?= $statusClasses[$delivery['status']] ?>">
-                                            <?= $statusLabels[$delivery['status']] ?>
+                                        <span class="status-badge status-<?= htmlspecialchars(status_class($statusClasses, $delivery['status'])) ?>">
+                                            <?= htmlspecialchars(status_label($statusLabels, $delivery['status'])) ?>
                                         </span>
                                     </td>
                                     <td><?= $delivery['scheduled_date'] ? date('M j, Y', strtotime($delivery['scheduled_date'])) : '&mdash;' ?></td>

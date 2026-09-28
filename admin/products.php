@@ -379,6 +379,7 @@ function sort_link(string $column, string $label, string $currentSort, string $c
                 <a href="products.php" class="active">Products</a>
                 <a href="orders.php">Orders</a>
                 <a href="deliveries.php">Deliveries</a>
+                <a href="riders.php">Riders</a>
                 <a href="sales.php">Sales Report</a>
             </nav>
             <div class="admin-navbar-actions">

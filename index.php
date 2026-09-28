@@ -76,13 +76,6 @@ $featuredProducts = $stmt->fetchAll();
         .home-add-btn { display: block; width: 100%; margin-top: 12px; padding: 8px; border-radius: 0.5rem; background: var(--mpd-navy); color: #ffffff; font-weight: 600; font-size: 0.82rem; text-align: center; }
         .home-empty { color: var(--mpd-slate-light); font-size: 0.9rem; }
 
-        /* Why choose us */
-        .home-why-wrap { background: #ffffff; border-top: 1px solid var(--mpd-line); border-bottom: 1px solid var(--mpd-line); }
-        .home-why-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
-        .home-why-item h3 { font-size: 0.95rem; color: var(--mpd-navy); margin-bottom: 6px; }
-        .home-why-item p { font-size: 0.85rem; color: var(--mpd-slate-light); }
-        .home-why-icon { color: var(--mpd-amber-deep); font-size: 1.6rem; margin-bottom: 10px; display: block; }
-
         /* Steps */
         .home-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; counter-reset: homestep; }
         .home-step { position: relative; padding-left: 42px; }
@@ -117,7 +110,6 @@ $featuredProducts = $stmt->fetchAll();
 
         @media (max-width: 900px) {
             .home-product-grid { grid-template-columns: repeat(2, 1fr); }
-            .home-why-grid { grid-template-columns: repeat(2, 1fr); }
             .home-steps { grid-template-columns: 1fr; }
             .home-footer-grid { grid-template-columns: 1fr; }
         }
@@ -157,7 +149,7 @@ $featuredProducts = $stmt->fetchAll();
     <main>
         <section class="home-hero">
             <h1>MPD Electrical Supply & Services</h1>
-            <p>Quality electrical supplies and reliable service, all in one place.</p>
+            <p>Quality electrical supplies, all in one place.</p>
             <a href="pages/products.php" class="btn-primary">Browse Products</a>
         </section>
 
@@ -205,35 +197,6 @@ $featuredProducts = $stmt->fetchAll();
             <?php endif; ?>
         </section>
 
-        <!-- Why choose MPD -->
-        <div class="home-why-wrap">
-            <section class="home-section">
-                <div class="home-section-head" style="margin-bottom:24px;">
-                    <div>
-                        <h2>Why customers choose MPD</h2>
-                        <p>Not just a supply store — a partner for the whole job.</p>
-                    </div>
-                </div>
-                <div class="home-why-grid">
-                    <div class="home-why-item">
-                        <span class="home-why-icon">&#9989;</span>
-                        <h3>Genuine, tested stock</h3>
-                        <p>Every item is sourced from certified suppliers and checked before it ships.</p>
-                    </div>
-                    <div class="home-why-item">
-                        <span class="home-why-icon">&#128666;</span>
-                        <h3>Same-area fast delivery</h3>
-                        <p>Most orders in our service area arrive within 24 to 48 hours.</p>
-                    </div>
-                    <div class="home-why-item">
-                        <span class="home-why-icon">&#128222;</span>
-                        <h3>Real support, real people</h3>
-                        <p>Questions about a part or a job? Talk to someone who knows the trade.</p>
-                    </div>
-                </div>
-            </section>
-        </div>
-
         <!-- How ordering works -->
         <section class="home-section">
             <div class="home-section-head">
@@ -278,7 +241,7 @@ $featuredProducts = $stmt->fetchAll();
         <div class="home-footer-grid">
             <div>
                 <div class="logo" style="margin-bottom:10px;">MPD Electrical Supply & Services</div>
-                <p>Quality electrical supplies and dependable installation service for homes, businesses, and contractors.</p>
+                <p>Quality electrical supplies</p>
             </div>
             <div class="home-footer-col">
                 <h4>Shop</h4>

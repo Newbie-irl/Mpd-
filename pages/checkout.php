@@ -89,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'place
     }
     if ($address === '') {
         $errors[] = "Delivery address is required.";
+    } elseif (stripos($address, 'baliuag') === false) {
+        $errors[] = "Sorry, we currently deliver within Baliuag only.";
     }
     if ($contactNumber === '') {
         $errors[] = "Contact number is required.";

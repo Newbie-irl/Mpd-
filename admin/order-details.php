@@ -78,6 +78,7 @@ try {
                 <a href="products.php">Products</a>
                 <a href="orders.php" class="active">Orders</a>
                 <a href="deliveries.php">Deliveries</a>
+                <a href="riders.php">Riders</a>
                 <a href="sales.php">Sales Report</a>
             </nav>
             <div class="admin-navbar-actions">

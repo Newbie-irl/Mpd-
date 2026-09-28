@@ -51,16 +51,31 @@ foreach (safeRows($pdo, "SELECT status, COUNT(*) AS c FROM deliveries GROUP BY s
     }
 }
 
-// ---- Products running low on stock ----
-$lowStock = safeRows($pdo, "SELECT name, stock FROM products WHERE stock <= 5 ORDER BY stock ASC LIMIT 5");
+// ---- Products running low on stock (paginated) ----
+$lowStockPerPage = 5;
+$lowStockTotal   = (int) safeScalar($pdo, "SELECT COUNT(*) FROM products WHERE stock <= 5");
+$lowStockPages   = max(1, (int) ceil($lowStockTotal / $lowStockPerPage));
+$lowStockPage    = (int) ($_GET['lsp'] ?? 1);
+$lowStockPage    = max(1, min($lowStockPage, $lowStockPages));
+$lowStockOffset  = ($lowStockPage - 1) * $lowStockPerPage;
+$lowStock = safeRows($pdo,
+    "SELECT name, stock FROM products WHERE stock <= 5
+     ORDER BY stock ASC LIMIT {$lowStockPerPage} OFFSET {$lowStockOffset}"
+);
 
-// ---- Most recent orders ----
+// ---- Most recent orders (paginated) ----
+$recentOrdersPerPage = 5;
+$recentOrdersTotal   = (int) safeScalar($pdo, "SELECT COUNT(*) FROM orders");
+$recentOrdersPages   = max(1, (int) ceil($recentOrdersTotal / $recentOrdersPerPage));
+$recentOrdersPage    = (int) ($_GET['rop'] ?? 1);
+$recentOrdersPage    = max(1, min($recentOrdersPage, $recentOrdersPages));
+$recentOrdersOffset  = ($recentOrdersPage - 1) * $recentOrdersPerPage;
 $recentOrders = safeRows($pdo,
     "SELECT o.id, o.total_amount, o.status, o.created_at, u.full_name
      FROM orders o
      JOIN users u ON o.user_id = u.id
      ORDER BY o.created_at DESC
-     LIMIT 5"
+     LIMIT {$recentOrdersPerPage} OFFSET {$recentOrdersOffset}"
 );
 
 // ---- Sales trend: last 7 days (including days with zero orders) ----
@@ -168,6 +183,18 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
         .low-stock-name .material-symbols-outlined { color: #f59e0b; font-size: 1.1rem; }
         .low-stock-badge { background-color: #f59e0b; color: #451a03; font-weight: 700; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 9999px; }
 
+        .low-stock-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid #f1f5f9; }
+        .low-stock-pagination .page-info { font-size: 0.72rem; color: #64748b; font-weight: 600; }
+        .low-stock-pagination .page-nav { display: flex; gap: 0.4rem; }
+        .low-stock-pagination a.page-btn, .low-stock-pagination span.page-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 1.8rem; height: 1.8rem; border-radius: 9999px;
+            background-color: #f1f5f9; color: #334155; text-decoration: none;
+        }
+        .low-stock-pagination a.page-btn:hover { background-color: #f59e0b; color: #451a03; }
+        .low-stock-pagination span.page-btn.disabled { opacity: 0.4; pointer-events: none; }
+        .low-stock-pagination .material-symbols-outlined { font-size: 1rem; }
+
         /* Delivery status mini breakdown + sales trend */
         .widgets-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 1.25rem; }
         .delivery-mini { display: flex; flex-direction: column; gap: 0.6rem; }
@@ -210,6 +237,7 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
                 <a href="products.php">Products</a>
                 <a href="orders.php">Orders</a>
                 <a href="deliveries.php">Deliveries</a>
+                <a href="riders.php">Riders</a>
                 <a href="sales.php">Sales Report</a>
             </nav>
             <div class="admin-navbar-actions">
@@ -256,7 +284,7 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
                 <a class="stat-card-v2" href="products.php">
                     <div class="stat-card-v2-top"><span>Products</span><span class="material-symbols-outlined">inventory_2</span></div>
                     <div class="stat-card-v2-value"><?= $totalProducts ?></div>
-                    <div class="stat-card-v2-sub"><?= count($lowStock) ?> running low</div>
+                    <div class="stat-card-v2-sub"><?= $lowStockTotal ?> running low</div>
                     <div class="stat-card-v2-link">View all <span class="material-symbols-outlined" style="font-size:0.9rem;">chevron_right</span></div>
                 </a>
                 <a class="stat-card-v2" href="orders.php">
@@ -271,17 +299,18 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
                     <div class="stat-card-v2-sub"><?= $deliveryStatusCounts['out_for_delivery'] ?> en route &middot; <?= $deliveryStatusCounts['pending'] ?> pending</div>
                     <div class="stat-card-v2-link">View all <span class="material-symbols-outlined" style="font-size:0.9rem;">chevron_right</span></div>
                 </a>
-                <a class="stat-card-v2" href="#" onclick="return false;" style="cursor:default;">
+                <a class="stat-card-v2" href="customers.php">
                     <div class="stat-card-v2-top"><span>Customers</span><span class="material-symbols-outlined">group</span></div>
                     <div class="stat-card-v2-value"><?= $totalCustomers ?></div>
                     <div class="stat-card-v2-sub">Registered accounts</div>
+                    <div class="stat-card-v2-link">View all <span class="material-symbols-outlined" style="font-size:0.9rem;">chevron_right</span></div>
                 </a>
             </section>
 
             <!-- Low stock + Recent orders -->
             <div class="admin-panels-v2">
 
-                <section class="admin-panel-v2">
+                <section class="admin-panel-v2" id="low-stock">
                     <div class="admin-panel-v2-head">
                         <h2>Low Stock</h2>
                         <a href="products.php" class="panel-view-all">Manage products</a>
@@ -298,10 +327,31 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
                                 <span class="low-stock-badge"><?= (int) $item['stock'] ?> left</span>
                             </div>
                         <?php endforeach; ?>
+                        <?php if ($lowStockPages > 1): ?>
+                            <div class="low-stock-pagination">
+                                <span class="page-info">Page <?= $lowStockPage ?> of <?= $lowStockPages ?></span>
+                                <div class="page-nav">
+                                    <?php if ($lowStockPage > 1): ?>
+                                        <a class="page-btn" href="?lsp=<?= $lowStockPage - 1 ?>#low-stock" aria-label="Previous page">
+                                            <span class="material-symbols-outlined">chevron_left</span>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="page-btn disabled"><span class="material-symbols-outlined">chevron_left</span></span>
+                                    <?php endif; ?>
+                                    <?php if ($lowStockPage < $lowStockPages): ?>
+                                        <a class="page-btn" href="?lsp=<?= $lowStockPage + 1 ?>#low-stock" aria-label="Next page">
+                                            <span class="material-symbols-outlined">chevron_right</span>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="page-btn disabled"><span class="material-symbols-outlined">chevron_right</span></span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </section>
 
-                <section class="admin-panel-v2">
+                <section class="admin-panel-v2" id="recent-orders">
                     <div class="admin-panel-v2-head">
                         <h2>Recent Orders</h2>
                         <a href="orders.php" class="panel-view-all">View all</a>
@@ -325,6 +375,27 @@ $maxDayTotal = max(1, max(array_column($last7Days, 'total')));
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        <?php if ($recentOrdersPages > 1): ?>
+                            <div class="low-stock-pagination">
+                                <span class="page-info">Page <?= $recentOrdersPage ?> of <?= $recentOrdersPages ?></span>
+                                <div class="page-nav">
+                                    <?php if ($recentOrdersPage > 1): ?>
+                                        <a class="page-btn" href="?rop=<?= $recentOrdersPage - 1 ?>#recent-orders" aria-label="Previous page">
+                                            <span class="material-symbols-outlined">chevron_left</span>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="page-btn disabled"><span class="material-symbols-outlined">chevron_left</span></span>
+                                    <?php endif; ?>
+                                    <?php if ($recentOrdersPage < $recentOrdersPages): ?>
+                                        <a class="page-btn" href="?rop=<?= $recentOrdersPage + 1 ?>#recent-orders" aria-label="Next page">
+                                            <span class="material-symbols-outlined">chevron_right</span>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="page-btn disabled"><span class="material-symbols-outlined">chevron_right</span></span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </section>
 
